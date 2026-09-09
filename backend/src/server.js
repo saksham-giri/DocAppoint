@@ -1,0 +1,12 @@
+import 'dotenv/config';import express from 'express';import cors from 'cors';import mongoose from 'mongoose';import {register,login,requireAuth,allowRoles} from './middleware/auth.js';import {Doctor} from './models/Doctor.js';import {Appointment} from './models/Appointment.js';
+const app=express();app.use(cors({origin:true}));app.use(express.json());
+app.get('/api/health',(_,res)=>res.json({service:'DocAppoint API',status:'ok'}));app.post('/api/auth/register',register);app.post('/api/auth/login',login);
+app.get('/api/doctors',async(req,res)=>{const f={};if(req.query.specialty)f.specialty=new RegExp(req.query.specialty,'i');if(req.query.city)f.city=new RegExp(req.query.city,'i');res.json(await Doctor.find(f).sort({name:1}))});
+app.get('/api/doctors/:id',async(req,res)=>{const d=await Doctor.findById(req.params.id);d?res.json(d):res.status(404).json({message:'Doctor not found.'})});
+app.post('/api/doctors',requireAuth,allowRoles('admin'),async(req,res)=>res.status(201).json(await Doctor.create(req.body)));
+app.patch('/api/doctors/:id',requireAuth,allowRoles('admin','doctor'),async(req,res)=>res.json(await Doctor.findByIdAndUpdate(req.params.id,req.body,{new:true,runValidators:true})));
+app.post('/api/appointments',requireAuth,allowRoles('patient'),async(req,res)=>{try{const a=await Appointment.create({...req.body,patient:req.auth.sub});await a.populate('doctor','name specialty fee city');res.status(201).json(a)}catch(e){res.status(e.code===11000?409:500).json({message:e.code===11000?'That slot is already booked.':'Could not create appointment.'})}});
+app.get('/api/appointments/mine',requireAuth,allowRoles('patient'),async(req,res)=>res.json(await Appointment.find({patient:req.auth.sub}).populate('doctor','name specialty fee city').sort({date:1,time:1})));
+app.patch('/api/appointments/:id/cancel',requireAuth,allowRoles('patient'),async(req,res)=>{const a=await Appointment.findOneAndUpdate({_id:req.params.id,patient:req.auth.sub,status:'scheduled'},{status:'cancelled'},{new:true});a?res.json(a):res.status(404).json({message:'Active appointment not found.'})});
+app.get('/api/admin/appointments',requireAuth,allowRoles('admin'),async(_,res)=>res.json(await Appointment.find().populate('patient','name email').populate('doctor','name specialty').sort({createdAt:-1})));
+await mongoose.connect(process.env.MONGODB_URI);app.listen(Number(process.env.PORT||5000),()=>console.log('DocAppoint API running'));
