@@ -1,0 +1,8 @@
+import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
+import {User} from '../models/User.js';
+const tokenFor=u=>jwt.sign({sub:u._id.toString(),role:u.role},process.env.JWT_SECRET,{expiresIn:'7d'});
+export async function register(req,res){try{const{name,email,password}=req.body;if(!name||!email||!password||password.length<6)return res.status(400).json({message:'Name, email and a 6+ character password are required.'});if(await User.findOne({email}))return res.status(409).json({message:'An account already exists for this email.'});const u=await User.create({name,email,passwordHash:await bcrypt.hash(password,12)});res.status(201).json({token:tokenFor(u),user:{id:u._id,name:u.name,email:u.email,role:u.role}})}catch{res.status(500).json({message:'Unable to create account.'})}}
+export async function login(req,res){try{const{email,password}=req.body;const u=await User.findOne({email});if(!u||!(await bcrypt.compare(password,u.passwordHash)))return res.status(401).json({message:'Invalid email or password.'});res.json({token:tokenFor(u),user:{id:u._id,name:u.name,email:u.email,role:u.role}})}catch{res.status(500).json({message:'Unable to sign in.'})}}
+export function requireAuth(req,res,next){try{const h=req.headers.authorization||'';const t=h.startsWith('Bearer ')?h.slice(7):null;if(!t)return res.status(401).json({message:'Authentication required.'});req.auth=jwt.verify(t,process.env.JWT_SECRET);next()}catch{res.status(401).json({message:'Session expired.'})}}
+export const allowRoles=(...roles)=>(req,res,next)=>roles.includes(req.auth?.role)?next():res.status(403).json({message:'Permission denied.'});
